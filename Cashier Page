@@ -1,0 +1,339 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Data.OleDb;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using System.Drawing.Printing;
+
+namespace WindowsFormsApplication1
+{
+    public partial class Form3 : Form
+    {
+        private DataTable cartTable;
+        private OleDbConnection conn;
+
+      
+        OleDbCommand cmd; // Executes SQL commands
+        OleDbDataAdapter adapter; // Bridges data between Access and the application
+        DataTable dt; // Stores data in-memory for binding to controls
+
+        public Form3()
+        {
+            InitializeComponent();
+            InitializeCart();
+            InitializeDatabaseConnection();
+
+        }
+        private void InitializeDatabaseConnection()
+        {
+            // Adjust the path to your Access database
+            string connectionString = ("Provider=Microsoft.ACE.OleDb.12.0;Data Source=Login.accdb"); ;
+            conn = new OleDbConnection(connectionString);
+        }
+
+        private void InitializeCart()
+        {
+            cartTable = new DataTable();
+            cartTable.Columns.Add("Item Name");
+            cartTable.Columns.Add("Quantity");
+            cartTable.Columns.Add("Price");
+            cartTable.Columns.Add("Total");
+            dataGridViewCart.DataSource = cartTable;
+        }
+
+        private void button2_Click(object sender, EventArgs e)
+        {
+            Form1 form1 = new Form1();  // Admin Form
+            form1.Show();
+            this.Hide();
+        }
+
+        private void Form3_Load(object sender, EventArgs e)
+        {
+            GetUsers();
+            dgvProducts.Columns["Photo"].Visible = false; // Hide the Photo column
+            dgvProducts.Columns["ProductID"].Visible = false; // Hide the Photo column
+        }
+
+        private void txtPayment_TextChanged(object sender, EventArgs e)
+        {
+
+        }
+
+        private void btnAddToCart_Click(object sender, EventArgs e)
+        {
+
+            // Step 1: Validate inputs
+            if (string.IsNullOrWhiteSpace(txtItemName.Text) ||
+                string.IsNullOrWhiteSpace(txtPrice.Text) ||
+                string.IsNullOrWhiteSpace(txtQuantity.Text))
+            {
+                MessageBox.Show("Please enter valid item details.");
+                return; // Exit the function if input is invalid
+            }
+
+            // Step 2: Check if the item exists in the products database
+            string itemName = txtItemName.Text.Trim();
+            string checkItemQuery = "SELECT COUNT(*) FROM products WHERE ProductName = @itemName";
+
+            OleDbCommand checkItemCmd = new OleDbCommand(checkItemQuery, conn);
+            checkItemCmd.Parameters.AddWithValue("@itemName", itemName);
+
+            conn.Open();
+            int itemCount = Convert.ToInt32(checkItemCmd.ExecuteScalar()); // ExecuteScalar gets the count of matching rows
+            conn.Close();
+
+            if (itemCount == 0)
+            {
+                MessageBox.Show("Item does not exist in the products database.");
+                return; // Exit if item does not exist
+            }
+
+            // Step 3: Validate the price
+            decimal price; // Declare variable for price
+            if (!decimal.TryParse(txtPrice.Text, out price))  // Parsing price
+            {
+                MessageBox.Show("Invalid price entered.");
+                return; // Exit the function if price is invalid
+            }
+
+            int quantity; // Declare variable for quantity
+            if (!int.TryParse(txtQuantity.Text, out quantity))    // Parsing quantity
+            {
+                MessageBox.Show("Invalid quantity entered.");
+                return; // Exit the function if quantity is invalid
+            }
+
+            // Step 4: Calculate the total price for the item
+            decimal total = price * quantity; // Total = Price * Quantity
+
+            // Step 5: Add item to the cart DataTable
+            cartTable.Rows.Add(itemName, quantity, price, total);
+
+            // Step 6: Clear input fields for new entry
+            txtItemName.Clear();
+            txtPrice.Clear();
+            txtQuantity.Clear();
+
+            // Step 7: Update subtotal
+            UpdateSubtotal(); // Recalculate the subtotal for all items in the cart
+        }
+
+        private void UpdateSubtotal()
+        {
+            decimal subtotal = 0;
+
+            foreach (DataRow row in cartTable.Rows)
+            {
+                subtotal += Convert.ToDecimal(row["Total"]);
+            }
+
+            txtSubtotal.Text = subtotal.ToString("F2");
+            txtTotal.Text = subtotal.ToString("F2"); // No tax included
+        }
+
+        private void btnProcessPayment_Click(object sender, EventArgs e)
+        {
+            // Validate if txtTotal and txtPayment contain valid decimal values
+
+
+            decimal total, payment; // Declare variables first
+
+            if (!decimal.TryParse(txtTotal.Text, out total))
+            {
+                MessageBox.Show("Invalid total amount.");
+                return;
+            }
+
+            if (!decimal.TryParse(txtPayment.Text, out payment))
+            {
+                MessageBox.Show("Invalid payment amount.");
+                return;
+            }
+
+            if (payment < total)
+            {
+                MessageBox.Show("Insufficient payment.");
+                return;
+            }
+
+            // Calculate change
+            decimal change = payment - total;
+            txtChange.Text = change.ToString("F2");
+
+            // Save transaction to the database
+            SaveTransaction(total);
+
+            // Print receipt
+            PrintReceipt();
+
+            MessageBox.Show("Payment processed successfully.");
+
+            cartTable.Clear();
+            txtSubtotal.Clear();
+            txtTotal.Clear();
+            txtPayment.Clear();
+            txtChange.Clear();
+
+        }
+
+        private void SaveTransaction(decimal total)
+        {
+            try
+            {
+                // Ensure the connection is open
+                if (conn.State != ConnectionState.Open)
+                {
+                    conn.Open();
+                }
+
+                // Insert into `history` table
+                string insertTransactionQuery = "INSERT INTO history (TotalAmount, TransactionDate) VALUES (@total, @date)";
+                using (OleDbCommand cmd = new OleDbCommand(insertTransactionQuery, conn))
+                {
+                    cmd.Parameters.Add(new OleDbParameter("@total", OleDbType.Currency) { Value = total }); // Matches Currency in Access
+                    cmd.Parameters.Add(new OleDbParameter("@date", OleDbType.Date) { Value = DateTime.Now }); // Matches Date/Time in Access
+                    cmd.ExecuteNonQuery();
+                }
+
+                // Get the last inserted TransactionID
+                OleDbCommand cmdGetTransactionID = new OleDbCommand("SELECT @@IDENTITY", conn);
+                int transactionID = Convert.ToInt32(cmdGetTransactionID.ExecuteScalar());
+
+                // Insert into `itemspurchased` table and update inventory
+                foreach (DataRow row in cartTable.Rows)
+                {
+                    // Insert purchased items
+                    string insertItemQuery = "INSERT INTO itemspurchased (TransactionID, ItemName, Quantity, Price, Total) " +
+                                              "VALUES (@transactionID, @itemName, @quantity, @price, @total)";
+                    using (OleDbCommand cmdItem = new OleDbCommand(insertItemQuery, conn))
+                    {
+                        cmdItem.Parameters.Add(new OleDbParameter("@transactionID", OleDbType.Integer) { Value = transactionID });
+                        cmdItem.Parameters.Add(new OleDbParameter("@itemName", OleDbType.VarChar) { Value = row["Item Name"].ToString() });
+                        cmdItem.Parameters.Add(new OleDbParameter("@quantity", OleDbType.Integer) { Value = Convert.ToInt32(row["Quantity"]) });
+                        cmdItem.Parameters.Add(new OleDbParameter("@price", OleDbType.Currency) { Value = Convert.ToDecimal(row["Price"]) });
+                        cmdItem.Parameters.Add(new OleDbParameter("@total", OleDbType.Currency) { Value = Convert.ToDecimal(row["Total"]) });
+                        cmdItem.ExecuteNonQuery();
+                    }
+
+                    // Update inventory: reduce 50 grams per unit purchased
+                    string updateInventoryQuery = @"
+                    UPDATE inventory 
+                    SET [Quantity(in grams)] = [Quantity(in grams)] - @deduction
+                    WHERE SupplyName = @supplyName";
+                    using (OleDbCommand cmdUpdateInventory = new OleDbCommand(updateInventoryQuery, conn))
+                    {
+                        int purchasedQuantity = Convert.ToInt32(row["Quantity"]);
+                        int deduction = 50 * purchasedQuantity; // 50 grams for each unit purchased
+
+                        cmdUpdateInventory.Parameters.Add(new OleDbParameter("@deduction", OleDbType.Integer) { Value = deduction });
+                        cmdUpdateInventory.Parameters.Add(new OleDbParameter("@supplyName", OleDbType.VarChar) { Value = row["Item Name"].ToString() });
+
+                        cmdUpdateInventory.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error saving transaction: " + ex.Message);
+            }
+            finally
+            {
+                // Ensure the connection is closed after the entire operation
+                if (conn.State == ConnectionState.Open)
+                {
+                    conn.Close();
+                }
+            }
+        }
+
+        private void btnClearCart_Click(object sender, EventArgs e)
+        {
+            cartTable.Clear();
+            txtSubtotal.Clear();
+            txtTotal.Clear();
+            txtPayment.Clear();
+            txtChange.Clear();
+        }
+
+        private void btnPrintReceipt_Click(object sender, EventArgs e)
+        {
+            
+            
+        }
+
+        // Event handler for "Print Receipt" button
+        private void PrintReceipt()
+        {
+            string receipt = "BigBrew\nBlk 3 Lot 6 Bangkal\nMalolos, Bulacan\n\n\n----- Receipt -----\n\n\n";
+
+            receipt += "Cashier Name: Hail only\n";
+            receipt += "Transaction No. : 0027\n\n";
+
+            foreach (DataRow row in cartTable.Rows)
+            {
+                receipt += $"{row["Item Name"]} x {row["Quantity"]} = {row["Total"]:C2}\n";
+            }
+          
+            receipt += "\n";
+            receipt += $"Subtotal: {txtSubtotal.Text}\n";
+            receipt += $"Total: {txtTotal.Text}\n";
+            receipt += $"Payment: {txtPayment.Text}\n";
+            receipt += $"Change: {txtChange.Text}\n\n";
+            receipt += "\n-------------------\n";
+            receipt += "Thank you for your purchase!\n";
+
+            PrintDialog printDialog = new PrintDialog();
+            if (printDialog.ShowDialog() == DialogResult.OK)
+            {
+                using (PrintDocument printDocument = new PrintDocument())
+                {
+                    printDocument.PrintPage += (s, ev) =>
+                    {
+                        ev.Graphics.DrawString(receipt, new Font("Arial", 12), Brushes.Black, 100, 100);
+                    };
+                    printDocument.Print();
+                }
+            }
+        }
+
+        void GetUsers()
+        {
+            conn = new OleDbConnection("Provider=Microsoft.ACE.OleDb.12.0;Data Source=Login.accdb");
+            dt = new DataTable();
+            adapter = new OleDbDataAdapter("SELECT * FROM products", conn);
+            conn.Open();
+            adapter.Fill(dt);
+            dgvProducts.DataSource = dt;
+            conn.Close();
+        }
+
+        private void dgvProducts_CellEnter(object sender, DataGridViewCellEventArgs e)
+        {
+
+        }
+
+        private void tbS_TextChanged(object sender, EventArgs e)
+        {
+            string searchQuery = "SELECT * FROM products WHERE ProductName LIKE @i";
+            adapter = new OleDbDataAdapter(searchQuery, conn);
+            adapter.SelectCommand.Parameters.AddWithValue("@i", tbS.Text + "%");
+
+            dt = new DataTable();
+            conn.Open();
+            adapter.Fill(dt);
+            conn.Close();
+            dgvProducts.DataSource = dt;
+        }
+
+        private void label2_Click(object sender, EventArgs e)
+        {
+
+        }
+    }
+}
