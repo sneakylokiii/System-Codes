@@ -1,0 +1,198 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Data.OleDb; // For connecting to Access databases
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+
+namespace WindowsFormsApplication1
+{
+    public partial class Form5 : Form
+    {
+        OleDbConnection conn; // Manages the connection to the Access database
+        OleDbCommand cmd; // Executes SQL commands
+        OleDbDataAdapter adapter; // Bridges data between Access and the application
+        DataTable dt; // Stores data in-memory for binding to controls
+
+
+        public Form5()
+        {
+            InitializeComponent();
+        }
+        void GetInventory()
+        {
+            conn = new OleDbConnection("Provider=Microsoft.ACE.OleDb.12.0;Data Source=Login.accdb");
+            dt = new DataTable();
+            adapter = new OleDbDataAdapter("SELECT * FROM inventory", conn);
+            conn.Open();
+            adapter.Fill(dt);
+            dgvInventory.DataSource = dt;
+            conn.Close();
+        }
+
+        private void button2_Click(object sender, EventArgs e)
+        {
+            Form2 form2 = new Form2();  // Admin Form
+            form2.Show();
+            this.Hide();
+        }
+
+        private void Form5_Load(object sender, EventArgs e)
+        {
+            // Load the inventory data into the DataGridView when the form loads
+            GetInventory();
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            // Check for required fields
+            if (string.IsNullOrWhiteSpace(tbSN.Text) ||
+                string.IsNullOrWhiteSpace(tbQ.Text) || string.IsNullOrWhiteSpace(tbP.Text))
+            {
+                MessageBox.Show("Please fill in all fields.");
+                return;
+            }
+
+            // SQL query to insert a new item
+            string query = "INSERT INTO inventory ([SupplyName], [Quantity(in grams)], [Price]) " +
+                           "VALUES (@sn, @q, @p)";
+            cmd = new OleDbCommand(query, conn);
+
+            // Add parameters from textboxes
+            cmd.Parameters.AddWithValue("@sn", tbSN.Text);
+            cmd.Parameters.AddWithValue("@q", tbQ.Text);
+            cmd.Parameters.AddWithValue("@p", tbP.Text);
+
+            try
+            {
+                conn.Open();
+                cmd.ExecuteNonQuery();
+                MessageBox.Show("Supply Inserted Successfully");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error: " + ex.Message);
+            }
+            finally
+            {
+                conn.Close();
+            }
+
+            // Refresh the DataGridView
+            GetInventory();
+        }
+
+        private void button4_Click(object sender, EventArgs e)
+        {
+            tbSN.Clear();
+            tbQ.Clear();
+            tbP.Clear();
+        }
+
+        private void dgvInventory_CellEnter(object sender, DataGridViewCellEventArgs e)
+        {
+            // Load selected row data into textboxes
+            tbSN.Text = dgvInventory.CurrentRow.Cells[1].Value.ToString();
+            tbQ.Text = dgvInventory.CurrentRow.Cells[2].Value.ToString();
+            tbP.Text = dgvInventory.CurrentRow.Cells[3].Value.ToString();
+        }
+
+        private void tbS_TextChanged(object sender, EventArgs e)
+        {
+            // Perform search and filter inventory based on SupplyName
+            string searchQuery = "SELECT * FROM inventory WHERE SupplyName LIKE @sn";
+            adapter = new OleDbDataAdapter(searchQuery, conn);
+            adapter.SelectCommand.Parameters.AddWithValue("@sn", tbS.Text + "%");
+
+            dt = new DataTable();
+            try
+            {
+                conn.Open();
+                adapter.Fill(dt);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error: " + ex.Message);
+            }
+            finally
+            {
+                conn.Close();
+            }
+
+            dgvInventory.DataSource = dt;
+        }
+
+        private void button3_Click(object sender, EventArgs e)
+        {
+            // Check for required fields
+            if (string.IsNullOrWhiteSpace(tbSN.Text) ||
+               string.IsNullOrWhiteSpace(tbQ.Text) || string.IsNullOrWhiteSpace(tbP.Text))
+            {
+                MessageBox.Show("Please fill in all fields.");
+                return;
+            }
+
+            // SQL query to update an existing inventory item
+            string query = "UPDATE inventory SET [SupplyName]=@sn, [Quantity(in grams)]=@q, [Price]=@p WHERE InventoryID=@id";
+            cmd = new OleDbCommand(query, conn);
+
+            // Add parameters from textboxes
+            cmd.Parameters.AddWithValue("@sn", tbSN.Text);
+            cmd.Parameters.AddWithValue("@q", tbQ.Text);
+            cmd.Parameters.AddWithValue("@p", tbP.Text);
+            cmd.Parameters.AddWithValue("@id", Convert.ToInt32(dgvInventory.CurrentRow.Cells[0].Value));
+
+            try
+            {
+                conn.Open();
+                cmd.ExecuteNonQuery();
+                MessageBox.Show("Supply Updated Successfully");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error: " + ex.Message);
+            }
+            finally
+            {
+                conn.Close();
+            }
+
+            // Refresh the DataGridView
+            GetInventory();
+        }
+
+        private void dgvInventory_CellContentClick(object sender, DataGridViewCellEventArgs e)
+        {
+
+        }
+
+        private void tbS_TextChanged_1(object sender, EventArgs e)
+        {
+            string searchQuery = "SELECT * FROM inventory WHERE [SupplyName] LIKE @sn";
+            adapter = new OleDbDataAdapter(searchQuery, conn);
+            adapter.SelectCommand.Parameters.AddWithValue("@sn", tbS.Text + "%");
+
+            dt = new DataTable();
+            try
+            {
+                conn.Open();
+                adapter.Fill(dt);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error: " + ex.Message);
+            }
+            finally
+            {
+                conn.Close();
+            }
+
+            dgvInventory.DataSource = dt;
+        }
+    }
+}
