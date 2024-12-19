@@ -1,0 +1,292 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Data.OleDb; // For connecting to Access databases
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Drawing.Printing; // For PrintDocument and related classes
+
+using System.Windows.Forms;
+
+namespace WindowsFormsApplication1
+{
+    public partial class Form7 : Form
+    {
+
+        OleDbConnection conn; // Manages the connection to the Access database
+        OleDbDataAdapter adapter; // Bridges data between Access and the application
+        DataTable dt; // Stores data in-memory for binding to controls
+        public Form7()
+        {
+            InitializeComponent();
+        }
+
+        void GetInventory()
+        {
+            try
+            {
+                conn = new OleDbConnection("Provider=Microsoft.ACE.OleDb.12.0;Data Source=Login.accdb");  // Make sure the path is correct
+                dt = new DataTable();
+                string query = "SELECT * FROM history";  // Ensure the table name is correct
+                adapter = new OleDbDataAdapter(query, conn);
+
+                conn.Open();
+                adapter.Fill(dt);  // Fill the DataTable with data from the database
+                dgvInventory.DataSource = dt;  // Bind the DataTable to the DataGridView
+
+                // Calculate and display the total sum
+                DisplayTotalSum();
+            }
+            catch (OleDbException ex)
+            {
+                MessageBox.Show("Database Error: " + ex.Message);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error: " + ex.Message);
+            }
+            finally
+            {
+                conn.Close();
+            }
+        }
+
+        private void button2_Click(object sender, EventArgs e)
+        {
+            Form2 form2 = new Form2();  // Admin Form
+            form2.Show();
+            this.Hide();
+        }
+
+        private void dateTimePicker2_ValueChanged(object sender, EventArgs e)
+        {
+
+        }
+        void DisplayTotalSum()
+        {
+            try
+            {
+                decimal totalSum = 0;
+
+                // Iterate through rows of the DataGridView
+                foreach (DataGridViewRow row in dgvInventory.Rows)
+                {
+                    if (row.Cells["TotalAmount"].Value != null && row.Cells["TotalAmount"].Value != DBNull.Value)
+                    {
+                        totalSum += Convert.ToDecimal(row.Cells["TotalAmount"].Value);
+                    }
+                }
+
+                // Display the total sum in the TextBox
+                tbTotalSum.Text = totalSum.ToString("C"); // Format as currency
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error calculating total sum: " + ex.Message);
+            }
+        }
+
+        private void dataGridView1_CellContentClick(object sender, DataGridViewCellEventArgs e)
+        {
+
+        }
+
+        private void Form7_Load(object sender, EventArgs e)
+        {
+            // Load the inventory data into the DataGridView when the form loads
+            GetInventory();
+        }
+
+        private void dgvInventory_CellEnter(object sender, DataGridViewCellEventArgs e)
+        {
+
+        }
+
+        private void textBox1_TextChanged(object sender, EventArgs e)
+        {
+            string searchQuery = "SELECT * FROM history WHERE [TransactionID] LIKE @tn";
+            adapter = new OleDbDataAdapter(searchQuery, conn);
+            adapter.SelectCommand.Parameters.AddWithValue("@tn", tbS.Text + "%");
+
+            dt = new DataTable();
+            try
+            {
+                conn.Open();
+                adapter.Fill(dt);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error: " + ex.Message);
+            }
+            finally
+            {
+                conn.Close();
+            }
+
+            dgvInventory.DataSource = dt;
+
+            // Recalculate total after filtering
+            DisplayTotalSum();
+        }
+
+        private void tbFN_TextChanged(object sender, EventArgs e)
+        {
+            
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                // Filter to display only today's sales
+                string query = "SELECT * FROM history WHERE TransactionDate = @today";
+
+                adapter = new OleDbDataAdapter(query, conn);
+                adapter.SelectCommand.Parameters.AddWithValue("@today", DateTime.Now.Date); // Pass today's date
+
+                dt = new DataTable();
+
+                conn.Open();
+                adapter.Fill(dt);
+
+                // Update DataGridView with the filtered data
+                dgvInventory.DataSource = dt;
+
+                // Recalculate the total for today's sales
+                DisplayTotalSum();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error displaying today's sales: " + ex.Message);
+            }
+            finally
+            {
+                conn.Close();
+            }
+        }
+
+        private void button3_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                // Get the start and end dates of the current week
+                DateTime today = DateTime.Now.Date;
+                int delta = DayOfWeek.Monday - today.DayOfWeek; // Calculate the offset to the start of the week
+                DateTime weekStart = today.AddDays(delta); // Monday of the current week
+                DateTime weekEnd = weekStart.AddDays(6);   // Sunday of the current week
+
+                // SQL query to filter by the current week's dates
+                string query = "SELECT * FROM history WHERE TransactionDate >= @weekStart AND TransactionDate <= @weekEnd";
+
+                adapter = new OleDbDataAdapter(query, conn);
+                adapter.SelectCommand.Parameters.AddWithValue("@weekStart", weekStart);
+                adapter.SelectCommand.Parameters.AddWithValue("@weekEnd", weekEnd);
+
+                dt = new DataTable();
+
+                conn.Open();
+                adapter.Fill(dt);
+
+                // Update DataGridView with the filtered data
+                dgvInventory.DataSource = dt;
+
+                // Recalculate the total for this week's sales
+                DisplayTotalSum();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error displaying this week's sales: " + ex.Message);
+            }
+            finally
+            {
+                conn.Close();
+            }
+        }
+
+        private void button6_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                // Create a PrintDocument instance
+                PrintDocument printDoc = new PrintDocument();
+
+                // Set up the PrintPage event handler
+                printDoc.PrintPage += new PrintPageEventHandler(PrintPage);
+
+                // Show the PrintDialog to the user
+                PrintDialog printDialog = new PrintDialog();
+                printDialog.Document = printDoc;
+
+                // If the user clicks OK, print the document
+                if (printDialog.ShowDialog() == DialogResult.OK)
+                {
+                    printDoc.Print();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error printing: " + ex.Message);
+            }
+        }
+
+        private void PrintPage(object sender, PrintPageEventArgs e)
+        {
+            try
+            {
+                // Create a font for printing
+                Font font = new Font("Arial", 10);
+                Brush brush = Brushes.Black;
+
+                // Set starting position for drawing on the page
+                float x = e.MarginBounds.Left;
+                float y = e.MarginBounds.Top;
+                float lineHeight = font.GetHeight(e.Graphics) + 2;
+
+                // Insert the header text at the top of the page
+                string headerText = "BigBrew\nBlk 3 Lot 6 Bangkal\nMalolos, Bulacan\n\n----- Sale's Report -----\n";
+                e.Graphics.DrawString(headerText, font, brush, x, y);
+                y += lineHeight * 3;  // Adjust for space after the header text
+
+                // Optionally, you can add more space here if you want the DataGridView content lower
+                y += lineHeight * 2;  // Add more space before printing the DataGridView content
+
+                // Print column headers
+                foreach (DataGridViewColumn column in dgvInventory.Columns)
+                {
+                    e.Graphics.DrawString(column.HeaderText, font, brush, x, y);
+                    x += column.Width;
+                }
+                y += lineHeight;  // Move to the next line after the headers
+
+                // Print the rows of the DataGridView
+                foreach (DataGridViewRow row in dgvInventory.Rows)
+                {
+                    x = e.MarginBounds.Left;  // Reset X position for each row
+                    foreach (DataGridViewCell cell in row.Cells)
+                    {
+                        if (cell.Value != null)
+                        {
+                            e.Graphics.DrawString(cell.Value.ToString(), font, brush, x, y);
+                        }
+                        x += cell.OwningColumn.Width;  // Move to the next cell's position
+                    }
+                    y += lineHeight;  // Move to the next line after each row
+
+                    // Check if we need to print a new page
+                    if (y + lineHeight > e.MarginBounds.Bottom)
+                    {
+                        e.HasMorePages = true;
+                        return;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error in PrintPage: " + ex.Message);
+            }
+        }
+    }
+}
